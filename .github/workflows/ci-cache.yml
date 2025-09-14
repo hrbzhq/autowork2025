@@ -1,0 +1,92 @@
+name: CI with cache
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_embed:
+        description: 'Set to true to run embedding job (downloads model)'
+        required: false
+        default: 'false'
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache Hugging Face hub
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/huggingface
+            ~/.cache/huggingface/hub
+          key: ${{ runner.os }}-hf-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-hf-
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Upgrade pip
+        run: python -m pip install -U pip
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+          python -m pip install pytest
+
+      - name: Run tests
+        run: pytest -q
+
+  embed:
+    name: Generate embeddings (cached)
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_embed == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore pip cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Restore HF cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/huggingface
+            ~/.cache/huggingface/hub
+          key: ${{ runner.os }}-hf-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-hf-
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+
+      - name: Run embedding script
+        run: python embed_memory.py

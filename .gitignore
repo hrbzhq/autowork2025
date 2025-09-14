@@ -1,0 +1,12 @@
+# Ignore agent memory backups and generated artifacts
+agent_memory.txt.backup*
+agent_memory_sanitized_*.jsonl
+agent_memory_embeddings.jsonl
+study_archive_*.zip
+
+# Python virtualenv
+.venv/
+
+# cache
+__pycache__/
+*.pyc

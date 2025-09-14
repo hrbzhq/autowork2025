@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Create venv & install",
+      "type": "shell",
+      "command": "python -m venv .venv; .\\.venv\\Scripts\\Activate.ps1; python -m pip install -U pip; python -m pip install -r requirements.txt",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "Run tests",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\Activate.ps1; python -m pytest -q",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "Run cleanup",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\Activate.ps1; python run_cleanup.py",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "Map templates",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\Activate.ps1; python aggressive_template_map_and_writeback.py",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "Generate embeddings",
+      "type": "shell",
+      "command": ".\\.venv\\Scripts\\Activate.ps1; python embed_memory.py",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    }
+  ]
+}
