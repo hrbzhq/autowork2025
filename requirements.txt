@@ -1,3 +1,6 @@
 sentence-transformers==2.2.2
 numpy
 requests>=2.0.0
+# Optional for fallback encoder and real model usage
+transformers>=4.30.0
+torch>=2.0.0

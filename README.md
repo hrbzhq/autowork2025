@@ -39,6 +39,40 @@ python -m pip install -r requirements.txt
 Notes:
 - `sentence-transformers` is preferred (model: `all-MiniLM-L6-v2`). If package conflicts occur, the toolkit falls back to a `transformers` based mean-pooling encoder (auto-downloads same model). If network access is restricted, a simulated embedding path is available but not recommended.
 
+Optional vector DB backends
+- Chroma: recommended for developer convenience and persistence. Install with `pip install chromadb` and optionally `chromadb[ray]` for advanced setups.
+- FAISS: high-performance local vector index. On Windows prefer `faiss-cpu` via conda or appropriate wheel; installing on Windows via pip can be tricky.
+
+If you intend to use a local vector DB for retrieval (recommended for medium/large memory), install one of the above. The agent will auto-detect Chroma first, then FAISS; otherwise it uses an in-memory fallback.
+
+CI / caching hints
+- Model weights (SentenceTransformer/transformers) are large; cache the HF model directory in CI. For GitHub Actions, cache `~/.cache/huggingface` and `~/.cache/torch` (or relevant platform paths) to avoid repeated downloads.
+- Example GitHub Actions snippet (conceptual):
+
+```yaml
+# - name: Cache huggingface models
+#   uses: actions/cache@v4
+#   with:
+#     path: |
+#       ~/.cache/huggingface
+#       ~/.cache/torch
+#     key: hf-models-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
+#     restore-keys: |
+#       hf-models-${{ runner.os }}-
+```
+
+Notes on installing FAISS/Chroma in CI:
+- Chroma can be installed with `pip install chromadb` (but may add system-level deps for some features).
+- FAISS is often easier via conda (e.g., `conda install -c pytorch faiss-cpu`) — consider a separate job or using a container that already contains faiss.
+
+GitHub Actions example
+- A sample workflow is included at `.github/workflows/ci-embed.yml`.
+- The workflow runs unit tests on push/PR. It also exposes an optional `workflow_dispatch` job `embed` that will generate `agent_memory_embeddings.jsonl` (useful for one-off embedding builds or regenerations). The `embed` job caches huggingface/torch caches and uploads the embedding JSONL as an artifact.
+
+To manually trigger embedding in GitHub Actions:
+1. Push your branch and open the Actions tab. Find the workflow `CI - Tests & Optional Embedding` and click `Run workflow`.
+2. The `embed` job will run (it depends on tests passing) and upload `agent_memory_embeddings.jsonl` as an artifact.
+
 ## Expected outputs
 - `agent_memory.txt` — cleaned, deduplicated lessons (one per line)
 - `agent_memory_sanitized_<ts>.jsonl` — timestamped JSONL backup of sanitized lessons
@@ -81,3 +115,23 @@ python agent_v1.py --mission "Your mission here"
 Notes:
 - Adjust `SIMPLE_MODEL` and `COMPLEX_MODEL` in `agent_v1.py` to match the local model names you pulled with Ollama.
 - If Ollama isn't running, the script will fall back to simulated answers so you can test the loop logic.
+
+Docker (dev image)
+-------------------
+
+Build a small development image and optionally push it to a registry. A helper PowerShell script is provided at `scripts/build-and-push-dev.ps1`.
+
+Local build example (PowerShell):
+
+```powershell
+# Build only
+.
+# From the repo root:
+./scripts/build-and-push-dev.ps1
+
+# Build and push (set DO_PUSH=1 and credentials):
+$env:DO_PUSH='1'; $env:DOCKER_USERNAME='youruser'; $env:DOCKER_PASSWORD='yourpassword'; ./scripts/build-and-push-dev.ps1
+```
+
+By default the script builds `hrbzhq/autowork2025:dev`. Override with `IMAGE_NAME` environment variable.
+

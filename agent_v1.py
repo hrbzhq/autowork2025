@@ -20,7 +20,6 @@ PREFER_CLI = True
 
 class OllamaClient:
     """Minimal Ollama client. If Ollama isn't available, falls back to simple simulated responses."""
-
     def invoke(self, model_name: str, prompt: str, expect_json: bool = False) -> str:
         """Invoke a local Ollama model via CLI (preferred) or HTTP API, with fallback to simulation.
 
@@ -103,219 +102,11 @@ class OllamaClient:
         return text
 
 
-class SimpleMemory:
-    def __init__(self, path: str = MEMORY_FILE):
-        self.path = path
-        self.lessons: List[str] = []
-        # sanitize existing memory once on startup
-        self._sanitize_file()
-        self._load()
+from memory_store import MemoryStore
 
-    def _sanitize_file(self):
-        """One-time sanitize existing memory file to remove noisy or very short lines and duplicates."""
-        if not os.path.exists(self.path):
-            return
-        try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                lines = [l.strip() for l in f.readlines() if l.strip()]
-            cleaned = []
-            seen = set()
-            for ln in lines:
-                # If line is JSON (dict/list/string), try to extract a compact lesson
-                ln_clean = ln
-                try:
-                    parsed = json.loads(ln)
-                    candidate = None
-                    if isinstance(parsed, str):
-                        candidate = parsed
-                    elif isinstance(parsed, list) and parsed:
-                        # prefer first string element
-                        for el in parsed:
-                            if isinstance(el, str) and el.strip():
-                                candidate = el
-                                break
-                    elif isinstance(parsed, dict):
-                        # common keys to look for
-                        for k in ("lesson", "response", "result", "message", "text"):
-                            if k in parsed and isinstance(parsed[k], str) and parsed[k].strip():
-                                candidate = parsed[k]
-                                break
-                        if not candidate:
-                            # fall back to first string value
-                            for v in parsed.values():
-                                if isinstance(v, str) and v.strip():
-                                    candidate = v
-                                    break
-                    if candidate:
-                        ln_clean = candidate
-                    else:
-                        # fallback to removing common tokens
-                        ln_clean = re.sub(r"<\/?think>|thinking|done thinking|SUCCESS:|Result:", "", ln, flags=re.IGNORECASE).strip()
-                except Exception:
-                    ln_clean = re.sub(r"<\/?think>|thinking|done thinking|SUCCESS:|Result:", "", ln, flags=re.IGNORECASE).strip()
-
-                ln_clean = re.sub(r"\s+", " ", ln_clean)
-                if not ln_clean or len(ln_clean) < 10:
-                    continue
-                if ln_clean in seen:
-                    continue
-                seen.add(ln_clean)
-                cleaned.append(ln_clean)
-            # overwrite file with cleaned lessons
-            with open(self.path, "w", encoding="utf-8") as f:
-                for ln in cleaned:
-                    f.write(ln + "\n")
-        except Exception:
-            return
-
-    def aggressive_sanitize_file(self):
-        """More aggressive cleaning: extract first sentence, remove assistant-thoughts,
-        remove code fences and dict/list literal artifacts, then dedupe and rewrite file."""
-        if not os.path.exists(self.path):
-            return
-        try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                lines = [l.strip() for l in f.readlines() if l.strip()]
-            cleaned = []
-            seen = set()
-            for ln in lines:
-                # normalize
-                s = ln
-                # try parse JSON literal first
-                candidate = None
-                try:
-                    parsed = json.loads(s)
-                    if isinstance(parsed, str):
-                        candidate = parsed
-                    elif isinstance(parsed, list) and parsed:
-                        # prefer first string element or flatten
-                        for el in parsed:
-                            if isinstance(el, str) and el.strip():
-                                candidate = el.strip()
-                                break
-                    elif isinstance(parsed, dict):
-                        for k in ("lesson", "response", "result", "message", "text"):
-                            if k in parsed and isinstance(parsed[k], str) and parsed[k].strip():
-                                candidate = parsed[k].strip()
-                                break
-                        if not candidate:
-                            for v in parsed.values():
-                                if isinstance(v, str) and v.strip():
-                                    candidate = v.strip()
-                                    break
-                except Exception:
-                    candidate = None
-
-                if not candidate:
-                    # remove code fences and assistant-style tokens
-                    s2 = re.sub(r"```[\s\S]*?```", "", s)
-                    s2 = re.sub(r"<\/?think>|\bthought:\b|let's think|let me think|step by step|chain-of-thought", "", s2, flags=re.IGNORECASE)
-                    s2 = re.sub(r"\{\s*'|\"|\}\s*|\[|\]", "", s2)
-                    s2 = re.sub(r"SUCCESS:|Result:|Response:", "", s2, flags=re.IGNORECASE)
-                    s2 = re.sub(r"\s+", " ", s2).strip()
-                    # take first sentence-like fragment
-                    first = re.split(r'[\.\!?\n]', s2)[0].strip()
-                    candidate = first
-
-                if not candidate:
-                    continue
-                # normalize whitespace and length
-                candidate = re.sub(r"\s+", " ", candidate).strip()
-                if len(candidate) < 12:
-                    continue
-                if candidate in seen:
-                    continue
-                seen.add(candidate)
-                cleaned.append(candidate)
-
-            with open(self.path, "w", encoding="utf-8") as f:
-                for ln in cleaned:
-                    f.write(ln + "\n")
-            # reload lessons
-            self.lessons = cleaned
-        except Exception:
-            return
-
-    def _load(self):
-        if os.path.exists(self.path):
-            try:
-                with open(self.path, "r", encoding="utf-8") as f:
-                    items = [l.strip() for l in f.readlines() if l.strip()]
-                    # dedupe while preserving order
-                    seen = set()
-                    deduped = []
-                    for it in items:
-                        if it in seen:
-                            continue
-                        seen.add(it)
-                        deduped.append(it)
-                    self.lessons = deduped
-            except Exception:
-                self.lessons = []
-
-    def add_lesson(self, lesson: str):
-        # Accept if caller passed a JSON literal string like "{'lesson': '...'}" or JSON string
-        raw = lesson
-        lesson = lesson.strip()
-        # try to parse JSON-like literals and extract a sensible string
-        try:
-            parsed = json.loads(lesson)
-            if isinstance(parsed, str):
-                lesson = parsed
-            elif isinstance(parsed, dict):
-                for k in ("lesson", "response", "result", "message", "text"):
-                    if k in parsed and isinstance(parsed[k], str) and parsed[k].strip():
-                        lesson = parsed[k].strip()
-                        break
-                else:
-                    # fallback to first string value
-                    for v in parsed.values():
-                        if isinstance(v, str) and v.strip():
-                            lesson = v.strip()
-                            break
-            elif isinstance(parsed, list) and parsed:
-                for el in parsed:
-                    if isinstance(el, str) and el.strip():
-                        lesson = el.strip()
-                        break
-        except Exception:
-            # not JSON - keep raw trimmed string
-            lesson = lesson
-        # Normalize lesson: single line, collapse spaces
-        lesson = re.sub(r"\s+", " ", lesson)
-        # Reject obviously noisy lessons
-        if not lesson or len(lesson) < 10:
-            return
-        # Reject lessons that contain thinking/chain-of-thought markers
-        if re.search(r"<\/?think>|\[think\]|\(thinking\)|okay,? let(?:'s)? see|i need to think|thinking\.\.\.", lesson, flags=re.IGNORECASE):
-            return
-        # Truncate overly long lessons
-        if len(lesson) > 200:
-            lesson = lesson[:197].rsplit(' ', 1)[0] + '...'
-        # Dedupe similar items (exact match or high overlap)
-        if lesson in self.lessons:
-            return
-        # basic overlap check: avoid storing near-duplicates
-        for existing in self.lessons[-10:]:
-            # if new lesson is substring of existing or vice versa, skip
-            if lesson in existing or existing in lesson:
-                return
-        # print only cleaned lesson (avoid printing raw dicts)
-        try:
-            print(f"[Memory] Adding lesson: {lesson}")
-        except Exception:
-            pass
-        self.lessons.append(lesson)
-        try:
-            with open(self.path, "a", encoding="utf-8") as f:
-                f.write(lesson.replace("\n", " ") + "\n")
-        except Exception:
-            pass
-
-    def get_context(self) -> str:
-        if not self.lessons:
-            return "No past experiences or lessons learned yet."
-        return "--- Past Lessons Learned ---\n" + "\n".join(f"- {l}" for l in self.lessons)
+# Backwards-compatible alias for the older SimpleMemory name used elsewhere
+class SimpleMemory(MemoryStore):
+    pass
 
 
 @dataclass
@@ -653,9 +444,17 @@ Result: "{result}"
         print("\n===== Mission Accomplished =====")
         # One-time sanitize memory file now that the run has finished to remove legacy noisy entries
         try:
-            self.memory._sanitize_file()
-            self.memory._load()
+            # Run enhanced sanitization to aggressively remove noisy artifacts
+            self.memory.sanitize_existing()
             print("[Memory] Sanitized and reloaded memory file.")
+            # Trigger embedding generation for new/updated lessons (best-effort)
+            try:
+                print('[Memory] Generating/refreshing embeddings...')
+                # embed_lessons will attempt sentence-transformers or transformers fallback
+                self.memory.embed_lessons()
+                print('[Memory] Embeddings refreshed.')
+            except Exception as _e:
+                print(f'[Memory] Embedding refresh failed: {_e}')
         except Exception:
             pass
         print(self.memory.get_context())
