@@ -10,3 +10,11 @@ study_archive_*.zip
 # cache
 __pycache__/
 *.pyc
+
+# Chroma persistent files (do not commit runtime DB blobs)
+.chromadb/
+
+# Docker / CI / temp
+.dockerignore
+/.github/workflows/
+Dockerfile
